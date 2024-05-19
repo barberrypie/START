@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   db:
+      image: ${DOCKER_REGISTRY}/db_image
       build:
         context: ./db
         dockerfile: Dockerfile
@@ -16,6 +17,7 @@ services:
         - pgdata:/var/lib/postgresql
 
   db_replica:
+    image: ${DOCKER_REGISTRY}/db_repl_image
     build:
       context: ./db_repl
       dockerfile: Dockerfile
@@ -45,7 +47,7 @@ services:
 
 
   bot:
-    image: bot_image
+    image: ${DOCKER_REGISTRY}/bot_image
     build:
       context: ./bot
       dockerfile: Dockerfile
