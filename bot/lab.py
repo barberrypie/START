@@ -11,7 +11,7 @@ from telegram.ext import CallbackContext
 import psycopg2
 from psycopg2 import Error
 
-dotenv_path = Path(r'C:\\Projects\\New\\1.env')
+dotenv_path = Path(r'.env')
 load_dotenv(dotenv_path=dotenv_path)
 
 TOKEN = os.getenv('TOKEN')
@@ -26,22 +26,28 @@ logging.basicConfig(
 #logging.disable(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
-def execute_sql_command(sql_command, params = None):
+def execute_sql_command(sql_command, params = None, command=None):
     # подключаемся к бд
     connection = None
     try:
         connection = psycopg2.connect(
-            user=os.getenv('BD_USER'),
-            password=os.getenv('BD_PASS'),
-            host=os.getenv('BD_HOST'),  
-            port=os.getenv('BD_PORT'),
-            database=os.getenv('BD_BD')
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            host=os.getenv('DB_HOST'),  
+            port=os.getenv('DB_PORT'),
+            database=os.getenv('DB_DATABASE')
         )
         cursor = connection.cursor()
         # передаем запрос
         cursor.execute(sql_command, params)
         if sql_command.lower().startswith('select'):
-            records = cursor.fetchall()
+            if command == 'get_repl_logs':
+                records = cursor.fetchone()
+                records = records[0].splitlines()
+
+                records = [str(row) for row in records if "replica" in row.lower()]
+            else:
+                records = cursor.fetchall()
             return '\n'.join([str(row) for row in records])
         connection.commit()
         return "Команда успешно выполнена"
@@ -69,7 +75,7 @@ def ssh_command(update: Update, context: CallbackContext):
         'get_ss': 'ss -tulwn',
         'get_apt_list': '',
         'get_services': 'systemctl list-units --type=service --state=running',
-        'get_repl_logs':  'grep "replica" /var/log/postgresql/postgresql-14-main.log',
+        'get_repl_logs':  'SELECT pg_read_file(pg_current_logfile());',
         'get_emails': "SELECT * FROM emails;",
         'get_phone_numbers': "SELECT * FROM phone_numbers;"
     }
@@ -81,10 +87,10 @@ def ssh_command(update: Update, context: CallbackContext):
         update.message.reply_text("Введите название пакета или отправьте 'all' для вывода всех пакетов.")
         return 'get_apt_list'
 
-    if command_key in ['get_emails', 'get_phone_numbers']:
+    if command_key in ['get_emails', 'get_phone_numbers', 'get_repl_logs']:
         sql_command = command_map.get(command_key)
         if sql_command:
-            result = execute_sql_command(sql_command)
+            result = execute_sql_command(sql_command, command=command_key)
             update.message.reply_text(f"Результаты:\n{result}")
         else:
             update.message.reply_text("SQL команда не найдена.")
@@ -266,6 +272,7 @@ def get_Handler(command, command_function, states, fallbacks=[CommandHandler('ca
     )
 
 def main():
+    print("main", TOKEN)
     updater = Updater(TOKEN, use_context=True)
 
     # Получаем диспетчер для регистрации обработчиков
