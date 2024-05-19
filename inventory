@@ -1,0 +1,2 @@
+[postgresql]
+localhost ansible_connection=local

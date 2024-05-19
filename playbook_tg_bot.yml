@@ -1,0 +1,66 @@
+---
+- name: Setup PostgreSQL database and replication
+  hosts: postgresql
+  become: true
+  become_method: sudo
+  vars:
+    postgresql_version: 14
+    postgresql_data_directory: /etc/postgresql/14/main
+    db_name: db_bot
+    db_user: postgres
+    db_password: 123
+  tasks:
+    - name: Install PostgreSQL
+      apt:
+        name: postgresql-14
+        state: latest
+
+    - name: Ensure postgres user has a password
+      postgresql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_password }}"
+        state: present
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+
+    - name: Copy custom pg_hba.conf
+      copy:
+        src: pg_hba.conf
+        dest: "{{ postgresql_data_directory }}/pg_hba.conf"
+        owner: postgres
+        group: postgres
+        mode: '0640'
+      notify:
+        - Restart PostgreSQL
+
+    - name: Ensure PostgreSQL is started
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Wait for PostgreSQL to restart
+      pause:
+        seconds: 10
+
+    - name: Verify pg_hba.conf content
+      shell: cat "{{ postgresql_data_directory }}/pg_hba.conf"
+      register: pg_hba_content
+
+    - name: Print pg_hba.conf content
+      debug:
+        var: pg_hba_content.stdout
+
+    - name: Create database db_bot if not exists
+      postgresql_db:
+        name: db_bot
+        state: present
+        login_user: postgres
+        login_password: ''
+
+
+  handlers:
+    - name: Restart PostgreSQL
+      service:
+        name: postgresql
+        state: restarted
