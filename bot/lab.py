@@ -48,9 +48,10 @@ def execute_sql_command(sql_command, params = None, command=None):
                 records = records[0].splitlines()
 
                 records = [str(row) for row in records if "replica" in row.lower()]
+                return '\n'.join([str(row) for row in records])
             else:
                 records = cursor.fetchall()
-            return '\n'.join([f"{i + 1}. {row[1]}" for i, row in enumerate(records)])
+                return '\n'.join([f"{i + 1}. {row[1]}" for i, row in enumerate(records)])
         connection.commit()
         return "Команда успешно выполнена"
     # обработка исключений
