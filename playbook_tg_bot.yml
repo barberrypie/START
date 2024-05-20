@@ -45,6 +45,20 @@
         name: postgresql
         state: restarted
 
+    - name: Install psycopg2
+      apt:
+        name: python3-psycopg2
+        state: latest
+
+    - name: Install sshpass
+      apt:
+        name: sshpass
+        state: latest
+
+    - name: Add replica server to known_hosts
+      shell: "ssh-keyscan -H {{ ansible_host }} >> ~/.ssh/known_hosts"
+      delegate_to: localhost
+
     - name: Create PostgreSQL database
       postgresql_db:
         name: "{{ db_name }}"
@@ -125,8 +139,6 @@
       command: pg_basebackup --host=192.168.19.201 --username=replicator --pgdata={{ postgresql_data_directory }} -v -P --wal-method=stream
       environment:
         PGPASSWORD: 123
-      become: yes
-      become_user: postgres
 
 - name: Deploy Telegram bot
   hosts: localhost
