@@ -11,7 +11,7 @@ from telegram.ext import CallbackContext
 import psycopg2
 from psycopg2 import Error
 
-dotenv_path = Path(r'.env')
+dotenv_path = Path(r'../.env')
 load_dotenv(dotenv_path=dotenv_path)
 
 TOKEN = os.getenv('TOKEN')
