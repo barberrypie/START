@@ -1,2 +1,5 @@
-[postgresql]
+[localhost]
 localhost ansible_connection=local
+
+[replica]
+replica ansible_host=192.168.19.202 ansible_user=ubuntu ansible_password=ubuntu

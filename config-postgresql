@@ -1,0 +1,8 @@
+listen_addresses = '*'
+port = 5432
+max_connections = 100
+wal_level = replica
+max_wal_senders = 10
+archive_mode = on
+archive_command = 'cp %p /var/lib/postgresql/data/archive/%f'
+log_replication_commands = on

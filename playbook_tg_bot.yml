@@ -1,6 +1,6 @@
 ---
 - name: Setup PostgreSQL database and replication
-  hosts: postgresql
+  hosts: localhost
   become: true
   become_method: sudo
   vars:
@@ -15,14 +15,6 @@
         name: postgresql-14
         state: latest
 
-    - name: Ensure postgres user has a password
-      postgresql_user:
-        name: "{{ db_user }}"
-        password: "{{ db_password }}"
-        state: present
-        login_user: "{{ db_user }}"
-        login_password: "{{ db_password }}"
-
     - name: Copy custom pg_hba.conf
       copy:
         src: pg_hba.conf
@@ -30,37 +22,144 @@
         owner: postgres
         group: postgres
         mode: '0640'
-      notify:
-        - Restart PostgreSQL
 
-    - name: Ensure PostgreSQL is started
-      service:
-        name: postgresql
-        state: started
-        enabled: yes
+    - name: Update postgresql.conf
+      blockinfile:
+        path: "{{ postgresql_data_directory }}/postgresql.conf"
+        block: |
+          logging_collector = on
+          listen_addresses = '*'
+          port = 5432
+          max_connections = 100
+          wal_level = replica
+          max_wal_senders = 10
+          archive_mode = on
+          archive_command = 'cp %p /oracle/pg_data/archive/%f'
+          log_replication_commands = on
+        owner: postgres
+        group: postgres
+        mode: '0640'
 
-    - name: Wait for PostgreSQL to restart
-      pause:
-        seconds: 10
-
-    - name: Verify pg_hba.conf content
-      shell: cat "{{ postgresql_data_directory }}/pg_hba.conf"
-      register: pg_hba_content
-
-    - name: Print pg_hba.conf content
-      debug:
-        var: pg_hba_content.stdout
-
-    - name: Create database db_bot if not exists
-      postgresql_db:
-        name: db_bot
-        state: present
-        login_user: postgres
-        login_password: ''
-
-
-  handlers:
-    - name: Restart PostgreSQL
+    - name: Restart PostgreSQL manually
       service:
         name: postgresql
         state: restarted
+
+    - name: Create PostgreSQL database
+      postgresql_db:
+        name: "{{ db_name }}"
+        login_user: "{{ db_user }}"
+
+    - name: Create emails table
+      postgresql_query:
+        db: "{{ db_name }}"
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+        query: |
+          CREATE TABLE IF NOT EXISTS emails (
+            id SERIAL PRIMARY KEY,
+            email VARCHAR(100) NOT NULL
+          );
+
+    - name: Create phone_numbers table
+      postgresql_query:
+        db: "{{ db_name }}"
+        login_user: "{{ db_user }}"
+        login_password: "{{ db_password }}"
+        query: |
+          CREATE TABLE IF NOT EXISTS phone_numbers (
+            id SERIAL PRIMARY KEY,
+            phone_number VARCHAR(20) NOT NULL
+          );
+
+    - name: Create replication user account
+      postgresql_user:
+        name: replicator
+        password: "{{ db_password }}"
+        role_attr_flags: replication
+
+- name: Setup PostgreSQL replica
+  hosts: replica
+  become: true
+  become_method: sudo
+  vars:
+    postgresql_version: 14
+    postgresql_data_directory: /etc/postgresql/14/main
+    db_name: db_bot
+    db_user: postgres
+    db_password: 123
+  tasks:
+    - name: Install PostgreSQL
+      apt:
+        name: postgresql-14
+        state: latest
+
+    - name: Stop PostgreSQL
+      service:
+        name: postgresql
+        state: stopped
+    
+    - name: Clear out data directory
+      file:
+        path: "{{ postgresql_data_directory }}"
+        state: absent
+
+    - name: Create empty data directory
+      file:
+        path: "{{ postgresql_data_directory }}"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0700'
+
+    - name: Ensure /oracle/pg_data/archive directory exists
+      file:
+        path: /oracle/pg_data/archive
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0700'
+      become: yes
+
+    - name: Create base backup
+      command: pg_basebackup --host=192.168.19.201 --username=replicator --pgdata={{ postgresql_data_directory }} -v -P --wal-method=stream
+      environment:
+        PGPASSWORD: 123
+      become: yes
+      become_user: postgres
+
+- name: Deploy Telegram bot
+  hosts: localhost
+  become: true
+  become_method: sudo
+  tasks:
+    - name: Clone bot repository
+      git:
+        repo: 'https://github.com/barberrypie/START.git'
+        dest: /home/ubuntu/bot
+        version: docker
+
+    - name: Install Python and dependencies
+      apt:
+        name:
+          - python3-pip
+          - python3-venv
+        state: latest
+        update_cache: yes
+
+    - name: Setup Python virtual environment
+      command: pip install -r /home/ubuntu/bot/bot/requirements.txt
+      become_user: ubuntu
+
+    - name: Copy .env file to the server
+      copy:
+        src: .env
+        dest: /home/ubuntu/bot/.env
+
+    - name: Read .env file
+      shell: "cat /home/ubuntu/bot/.env"
+      register: dotenv
+
+    - name: Run Telegram bot
+      command: python /home/ubuntu/bot/bot/lab.py
+      become_user: ubuntu
