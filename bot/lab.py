@@ -69,7 +69,7 @@ def ssh_command(update: Update, context: CallbackContext):
         'get_uname': 'uname -a',
         'get_uptime': 'uptime',
         'get_df': 'df -h',
-        'get_free':'free -h',
+        'get_free': 'free -h',
         'get_mpstat': 'mpstat',
         'get_w': 'w',
         'get_auths': 'last -n 10',
@@ -86,9 +86,13 @@ def ssh_command(update: Update, context: CallbackContext):
     # Получение команды
     command_key = update.message.text.strip().lower().replace('/', '')
     logger.info(f'command_key = {command_key}')
-    if command_key == 'get_apt_list' and 'command' not in context.user_data:
+
+    if command_key == 'get_apt_list':
         update.message.reply_text("Введите название пакета или отправьте 'all' для вывода всех пакетов.")
-        return 'get_apt_list'
+        context.user_data['get_apt_list'] = True
+        return 'waiting'
+
+    system_command = command_map.get(command_key)
 
     if command_key in ['get_emails', 'get_phone_numbers', 'get_repl_logs']:
         sql_command = command_map.get(command_key)
@@ -98,14 +102,30 @@ def ssh_command(update: Update, context: CallbackContext):
         else:
             update.message.reply_text("SQL команда не найдена.")
         return ConversationHandler.END
-    
-    system_command = context.user_data.get('command', command_map.get(command_key))
-    logger.info(f'system_command = {system_command}')
 
     if system_command is None:
         update.message.reply_text("Такой команды нет.")
         return ConversationHandler.END
 
+    # Выполнение команды 
+    execute_ssh_command(update, system_command)
+    return ConversationHandler.END
+
+def handle_apt_list(update: Update, context: CallbackContext):
+    if 'get_apt_list' in context.user_data:
+        package_name = update.message.text.strip()
+        if package_name.lower() == 'all':
+            system_command = 'dpkg -l | tail -20'
+        else:
+            system_command = f'dpkg -s {package_name}'
+        del context.user_data['get_apt_list']
+
+        # Выполнение команды
+        execute_ssh_command(update, system_command)
+        return ConversationHandler.END
+
+def execute_ssh_command(update: Update, system_command: str):
+    logger.info(f'system_command = {system_command}')
 
     host = os.getenv('HOST')
     port = os.getenv('PORT')
@@ -124,14 +144,6 @@ def ssh_command(update: Update, context: CallbackContext):
     logger.info(f'data - {data if data else "Нет данных."}')
     update.message.reply_text(data if data else "Нет данных.")
 
-def apt_list_input(update: Update, context: CallbackContext):
-    user_input = update.message.text.strip().lower()
-    if user_input == 'all':
-        context.user_data['command'] = 'dpkg -l | tail -20'
-    else:
-        context.user_data['command'] = f"dpkg -s {user_input}"
-    
-    return ssh_command(update, context)
 
 def start(update: Update, context):
     user = update.effective_user
@@ -303,7 +315,7 @@ def main():
 
     HandlerGetAptList = get_Handler('get_apt_list',ssh_command,  # Это функция, которая начинает диалог
     {
-        'get_apt_list': [MessageHandler(Filters.text & ~Filters.command, apt_list_input)]
+        'waiting': [MessageHandler(Filters.text & ~Filters.command, handle_apt_list)]
     })
 	# Регистрируем обработчики команд
     dp.add_handler(CommandHandler("start", start))
